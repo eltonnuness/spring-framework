@@ -38,8 +38,8 @@ import static org.junit.Assert.assertTrue;
  */
 public class ServerSentEventHttpMessageReaderTests extends AbstractDataBufferAllocatingTestCase {
 
-	private ServerSentEventHttpMessageReader messageReader = new ServerSentEventHttpMessageReader(
-			Collections.singletonList(new Jackson2JsonDecoder()));
+	private ServerSentEventHttpMessageReader messageReader =
+			new ServerSentEventHttpMessageReader(new Jackson2JsonDecoder());
 
 	@Test
 	public void cantRead() {
@@ -155,6 +155,20 @@ public class ServerSentEventHttpMessageReaderTests extends AbstractDataBufferAll
 				})
 				.expectComplete()
 				.verify();
+	}
+
+	@Test // SPR-15331
+	public void decodeFullContentAsString() {
+
+		String body = "data:foo\ndata:bar\n\ndata:baz\n\n";
+		MockServerHttpRequest request = MockServerHttpRequest.post("/").body(body);
+
+		String actual = messageReader
+				.readMono(ResolvableType.forClass(String.class), request, Collections.emptyMap())
+				.cast(String.class)
+				.block(Duration.ZERO);
+
+		assertEquals(body, actual);
 	}
 
 }

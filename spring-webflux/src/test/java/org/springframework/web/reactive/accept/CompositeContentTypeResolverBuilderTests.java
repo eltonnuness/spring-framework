@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,19 +15,16 @@
  */
 package org.springframework.web.reactive.accept;
 
-import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.List;
 
 import org.junit.Test;
 
 import org.springframework.http.MediaType;
-import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.mock.http.server.reactive.test.MockServerHttpRequest;
-import org.springframework.mock.http.server.reactive.test.MockServerHttpResponse;
+import org.springframework.mock.http.server.reactive.test.MockServerWebExchange;
 import org.springframework.web.server.NotAcceptableStatusException;
 import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.adapter.DefaultServerWebExchange;
 
 import static org.junit.Assert.assertEquals;
 
@@ -42,23 +39,22 @@ public class CompositeContentTypeResolverBuilderTests {
 	public void defaultSettings() throws Exception {
 		RequestedContentTypeResolver resolver = new RequestedContentTypeResolverBuilder().build();
 
-		ServerWebExchange exchange = createExchange("/flower.gif");
+		MockServerWebExchange exchange = MockServerHttpRequest.get("/flower.gif").toExchange();
 
 		assertEquals("Should be able to resolve file extensions by default",
 				Collections.singletonList(MediaType.IMAGE_GIF), resolver.resolveMediaTypes(exchange));
 
-		exchange = createExchange("/flower.xyz");
+		exchange = MockServerHttpRequest.get("/flower.foobar").toExchange();
 
 		assertEquals("Should ignore unknown extensions by default",
 				Collections.<MediaType>emptyList(), resolver.resolveMediaTypes(exchange));
 
-		exchange = createExchange("/flower?format=gif");
+		exchange = MockServerHttpRequest.get("/flower?format=gif").toExchange();
 
 		assertEquals("Should not resolve request parameters by default",
 				Collections.<MediaType>emptyList(), resolver.resolveMediaTypes(exchange));
 
-		ServerHttpRequest request = MockServerHttpRequest.get("/flower").accept(MediaType.IMAGE_GIF).build();
-		exchange = new DefaultServerWebExchange(request, new MockServerHttpResponse());
+		exchange = MockServerHttpRequest.get("/flower").accept(MediaType.IMAGE_GIF).toExchange();
 
 		assertEquals("Should resolve Accept header by default",
 				Collections.singletonList(MediaType.IMAGE_GIF), resolver.resolveMediaTypes(exchange));
@@ -72,30 +68,16 @@ public class CompositeContentTypeResolverBuilderTests {
 				.mediaType("bar", new MediaType("application", "bar"))
 				.build();
 
-		ServerWebExchange exchange = createExchange("/flower.foo");
+		ServerWebExchange exchange = MockServerHttpRequest.get("/flower.foo").toExchange();
 		assertEquals(Collections.singletonList(new MediaType("application", "foo")),
 				resolver.resolveMediaTypes(exchange));
 
-		exchange = createExchange("/flower.bar");
+		exchange = MockServerHttpRequest.get("/flower.bar").toExchange();
 		assertEquals(Collections.singletonList(new MediaType("application", "bar")),
 				resolver.resolveMediaTypes(exchange));
 
-		exchange = createExchange("/flower.gif");
+		exchange = MockServerHttpRequest.get("/flower.gif").toExchange();
 		assertEquals(Collections.singletonList(MediaType.IMAGE_GIF), resolver.resolveMediaTypes(exchange));
-	}
-
-	@Test
-	public void favorPathWithJafTurnedOff() throws Exception {
-		RequestedContentTypeResolver resolver = new RequestedContentTypeResolverBuilder()
-				.favorPathExtension(true)
-				.useJaf(false)
-				.build();
-
-		ServerWebExchange exchange = createExchange("/flower.foo");
-		assertEquals(Collections.emptyList(), resolver.resolveMediaTypes(exchange));
-
-		exchange = createExchange("/flower.gif");
-		assertEquals(Collections.emptyList(), resolver.resolveMediaTypes(exchange));
 	}
 
 	@Test(expected = NotAcceptableStatusException.class) // SPR-10170
@@ -105,7 +87,7 @@ public class CompositeContentTypeResolverBuilderTests {
 				.ignoreUnknownPathExtensions(false)
 				.build();
 
-		ServerWebExchange exchange = createExchange("/flower.xyz?format=json");
+		ServerWebExchange exchange = MockServerHttpRequest.get("/flower.foobar?format=json").toExchange();
 		resolver.resolveMediaTypes(exchange);
 	}
 
@@ -116,7 +98,7 @@ public class CompositeContentTypeResolverBuilderTests {
 				.mediaType("json", MediaType.APPLICATION_JSON)
 				.build();
 
-		ServerWebExchange exchange = createExchange("/flower?format=json");
+		ServerWebExchange exchange = MockServerHttpRequest.get("/flower?format=json").toExchange();
 
 		assertEquals(Collections.singletonList(MediaType.APPLICATION_JSON), resolver.resolveMediaTypes(exchange));
 	}
@@ -127,7 +109,7 @@ public class CompositeContentTypeResolverBuilderTests {
 				.favorParameter(true)
 				.build();
 
-		ServerWebExchange exchange = createExchange("/flower?format=xyz");
+		ServerWebExchange exchange = MockServerHttpRequest.get("/flower?format=xyz").toExchange();
 		resolver.resolveMediaTypes(exchange);
 	}
 
@@ -137,8 +119,7 @@ public class CompositeContentTypeResolverBuilderTests {
 				.ignoreAcceptHeader(true)
 				.build();
 
-		ServerHttpRequest request = MockServerHttpRequest.get("/flower").accept(MediaType.IMAGE_GIF).build();
-		ServerWebExchange exchange = new DefaultServerWebExchange(request, new MockServerHttpResponse());
+		ServerWebExchange exchange = MockServerHttpRequest.get("/flower").accept(MediaType.IMAGE_GIF).toExchange();
 
 		assertEquals(Collections.<MediaType>emptyList(), resolver.resolveMediaTypes(exchange));
 	}
@@ -149,8 +130,7 @@ public class CompositeContentTypeResolverBuilderTests {
 				.defaultContentType(MediaType.APPLICATION_JSON)
 				.build();
 
-		ServerHttpRequest request = MockServerHttpRequest.get("/").accept(MediaType.ALL).build();
-		ServerWebExchange exchange = new DefaultServerWebExchange(request, new MockServerHttpResponse());
+		ServerWebExchange exchange = MockServerHttpRequest.get("/").accept(MediaType.ALL).toExchange();
 
 		assertEquals(Collections.singletonList(MediaType.APPLICATION_JSON), resolver.resolveMediaTypes(exchange));
 	}
@@ -163,18 +143,12 @@ public class CompositeContentTypeResolverBuilderTests {
 
 		List<MediaType> expected = Collections.singletonList(MediaType.APPLICATION_JSON);
 
-		ServerWebExchange exchange = createExchange("/");
+		ServerWebExchange exchange = MockServerHttpRequest.get("/").toExchange();
 		assertEquals(expected, resolver.resolveMediaTypes(exchange));
 
-		ServerHttpRequest request = MockServerHttpRequest.get("/").accept(MediaType.ALL).build();
-		exchange = new DefaultServerWebExchange(request, new MockServerHttpResponse());
+		exchange = MockServerHttpRequest.get("/").accept(MediaType.ALL).toExchange();
 		assertEquals(expected, resolver.resolveMediaTypes(exchange));
 	}
 
-
-	private ServerWebExchange createExchange(String url) throws URISyntaxException {
-		ServerHttpRequest request = MockServerHttpRequest.get(url).build();
-		return new DefaultServerWebExchange(request, new MockServerHttpResponse());
-	}
 
 }

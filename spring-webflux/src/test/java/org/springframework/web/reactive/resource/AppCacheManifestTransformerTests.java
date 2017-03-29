@@ -16,6 +16,7 @@
 
 package org.springframework.web.reactive.resource;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -28,12 +29,9 @@ import reactor.core.publisher.Mono;
 
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
-import org.springframework.http.HttpMethod;
 import org.springframework.mock.http.server.reactive.test.MockServerHttpRequest;
-import org.springframework.mock.http.server.reactive.test.MockServerHttpResponse;
 import org.springframework.util.FileCopyUtils;
 import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.adapter.DefaultServerWebExchange;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
@@ -81,30 +79,30 @@ public class AppCacheManifestTransformerTests {
 
 	@Test
 	public void noTransformIfExtensionNoMatch() throws Exception {
-		ServerWebExchange exchange = createExchange(HttpMethod.GET, "/static/foobar.file");
+		ServerWebExchange exchange = MockServerHttpRequest.get("/static/foobar.file").toExchange();
 		this.chain = mock(ResourceTransformerChain.class);
 		Resource resource = mock(Resource.class);
 		given(resource.getFilename()).willReturn("foobar.file");
 		given(this.chain.transform(exchange, resource)).willReturn(Mono.just(resource));
 
-		Resource result = this.transformer.transform(exchange, resource, this.chain).blockMillis(5000);
+		Resource result = this.transformer.transform(exchange, resource, this.chain).block(Duration.ofMillis(5000));
 		assertEquals(resource, result);
 	}
 
 	@Test
 	public void syntaxErrorInManifest() throws Exception {
-		ServerWebExchange exchange = createExchange(HttpMethod.GET, "/static/error.appcache");
+		ServerWebExchange exchange = MockServerHttpRequest.get("/static/error.appcache").toExchange();
 		this.chain = mock(ResourceTransformerChain.class);
 		Resource resource = new ClassPathResource("test/error.appcache", getClass());
 		given(this.chain.transform(exchange, resource)).willReturn(Mono.just(resource));
 
-		Resource result = this.transformer.transform(exchange, resource, this.chain).blockMillis(5000);
+		Resource result = this.transformer.transform(exchange, resource, this.chain).block(Duration.ofMillis(5000));
 		assertEquals(resource, result);
 	}
 
 	@Test
 	public void transformManifest() throws Exception {
-		ServerWebExchange exchange = createExchange(HttpMethod.GET, "/static/test.appcache");
+		ServerWebExchange exchange = MockServerHttpRequest.get("/static/test.appcache").toExchange();
 		VersionResourceResolver versionResolver = new VersionResourceResolver();
 		versionResolver.setStrategyMap(Collections.singletonMap("/**", new ContentVersionStrategy()));
 
@@ -119,7 +117,7 @@ public class AppCacheManifestTransformerTests {
 		this.chain = new DefaultResourceTransformerChain(resolverChain, transformers);
 
 		Resource resource = new ClassPathResource("test/test.appcache", getClass());
-		Resource result = this.transformer.transform(exchange, resource, this.chain).blockMillis(5000);
+		Resource result = this.transformer.transform(exchange, resource, this.chain).block(Duration.ofMillis(5000));
 		byte[] bytes = FileCopyUtils.copyToByteArray(result.getInputStream());
 		String content = new String(bytes, "UTF-8");
 
@@ -139,8 +137,4 @@ public class AppCacheManifestTransformerTests {
 				Matchers.containsString("# Hash: 4bf0338bcbeb0a5b3a4ec9ed8864107d"));
 	}
 
-	private ServerWebExchange createExchange(HttpMethod method, String url) {
-		MockServerHttpRequest request = MockServerHttpRequest.method(method, url).build();
-		return new DefaultServerWebExchange(request, new MockServerHttpResponse());
-	}
 }

@@ -27,7 +27,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
-import org.junit.Before;
 import org.junit.Test;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -38,14 +37,12 @@ import rx.Single;
 
 import org.springframework.core.MethodParameter;
 import org.springframework.core.Ordered;
-import org.springframework.core.ResolvableType;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.core.io.buffer.support.DataBufferTestUtils;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpResponse;
-import org.springframework.mock.http.server.reactive.test.MockServerHttpRequest;
-import org.springframework.mock.http.server.reactive.test.MockServerHttpResponse;
+import org.springframework.mock.http.server.reactive.test.MockServerWebExchange;
 import org.springframework.ui.ConcurrentModel;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -53,16 +50,17 @@ import org.springframework.web.reactive.BindingContext;
 import org.springframework.web.reactive.HandlerResult;
 import org.springframework.web.reactive.accept.HeaderContentTypeResolver;
 import org.springframework.web.reactive.accept.RequestedContentTypeResolver;
-import org.springframework.web.reactive.result.ResolvableMethod;
 import org.springframework.web.server.NotAcceptableStatusException;
 import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.adapter.DefaultServerWebExchange;
 
-import static java.nio.charset.StandardCharsets.*;
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
-import static org.springframework.core.ResolvableType.*;
-import static org.springframework.http.MediaType.*;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.mock.http.server.reactive.test.MockServerHttpRequest.get;
+import static org.springframework.web.method.ResolvableMethod.on;
 
 /**
  * ViewResolutionResultHandler relying on a canned {@link TestViewResolver}
@@ -72,43 +70,39 @@ import static org.springframework.http.MediaType.*;
  */
 public class ViewResolutionResultHandlerTests {
 
-	private MockServerHttpRequest request;
-
 	private final BindingContext bindingContext = new BindingContext();
-
-
-	@Before
-	public void setup() throws Exception {
-		this.request = MockServerHttpRequest.get("/path").build();
-	}
 
 
 	@Test
 	public void supports() throws Exception {
-		testSupports(forClass(String.class), true);
-		testSupports(forClass(View.class), true);
-		testSupports(forClassWithGenerics(Mono.class, String.class), true);
-		testSupports(forClassWithGenerics(Mono.class, View.class), true);
-		testSupports(forClassWithGenerics(Single.class, String.class), true);
-		testSupports(forClassWithGenerics(Single.class, View.class), true);
-		testSupports(forClassWithGenerics(Mono.class, Void.class), true);
-		testSupports(forClass(Completable.class), true);
-		testSupports(forClass(Model.class), true);
-		testSupports(forClass(Map.class), true);
-		testSupports(forClass(TestBean.class), true);
-		testSupports(forClass(Integer.class), false);
-		testSupports(resolvableMethod().annotated(ModelAttribute.class), true);
+
+		testSupports(on(TestController.class).resolveReturnType(String.class));
+		testSupports(on(TestController.class).resolveReturnType(View.class));
+		testSupports(on(TestController.class).resolveReturnType(Mono.class, String.class));
+		testSupports(on(TestController.class).resolveReturnType(Mono.class, View.class));
+		testSupports(on(TestController.class).resolveReturnType(Single.class, String.class));
+		testSupports(on(TestController.class).resolveReturnType(Single.class, View.class));
+		testSupports(on(TestController.class).resolveReturnType(Mono.class, Void.class));
+		testSupports(on(TestController.class).resolveReturnType(Completable.class));
+		testSupports(on(TestController.class).resolveReturnType(Model.class));
+		testSupports(on(TestController.class).resolveReturnType(Map.class));
+		testSupports(on(TestController.class).resolveReturnType(TestBean.class));
+
+		testSupports(on(TestController.class).annotPresent(ModelAttribute.class).resolveReturnType());
 	}
 
-	private void testSupports(ResolvableType type, boolean result) {
-		testSupports(resolvableMethod().returning(type), result);
-	}
-
-	private void testSupports(ResolvableMethod resolvableMethod, boolean result) {
+	private void testSupports(MethodParameter returnType) {
 		ViewResolutionResultHandler resultHandler = resultHandler(mock(ViewResolver.class));
-		MethodParameter returnType = resolvableMethod.resolveReturnType();
 		HandlerResult handlerResult = new HandlerResult(new Object(), null, returnType, this.bindingContext);
-		assertEquals(result, resultHandler.supports(handlerResult));
+		assertTrue(resultHandler.supports(handlerResult));
+	}
+
+	@Test
+	public void doesNotSupport() throws Exception {
+		MethodParameter returnType = on(TestController.class).resolveReturnType(Integer.class);
+		ViewResolutionResultHandler resultHandler = resultHandler(mock(ViewResolver.class));
+		HandlerResult handlerResult = new HandlerResult(new Object(), null, returnType, this.bindingContext);
+		assertFalse(resultHandler.supports(handlerResult));
 	}
 
 	@Test
@@ -124,35 +118,36 @@ public class ViewResolutionResultHandlerTests {
 
 	@Test
 	public void handleReturnValueTypes() throws Exception {
+
 		Object returnValue;
-		ResolvableType returnType;
+		MethodParameter returnType;
 		ViewResolver resolver = new TestViewResolver("account");
 
-		returnType = forClass(View.class);
+		returnType = on(TestController.class).resolveReturnType(View.class);
 		returnValue = new TestView("account");
 		testHandle("/path", returnType, returnValue, "account: {id=123}");
 
-		returnType = forClassWithGenerics(Mono.class, View.class);
+		returnType = on(TestController.class).resolveReturnType(Mono.class, View.class);
 		returnValue = Mono.just(new TestView("account"));
 		testHandle("/path", returnType, returnValue, "account: {id=123}");
 
-		returnType = forClass(String.class);
+		returnType = on(TestController.class).resolveReturnType(String.class);
 		returnValue = "account";
 		testHandle("/path", returnType, returnValue, "account: {id=123}", resolver);
 
-		returnType = forClassWithGenerics(Mono.class, String.class);
+		returnType = on(TestController.class).resolveReturnType(Mono.class, String.class);
 		returnValue = Mono.just("account");
 		testHandle("/path", returnType, returnValue, "account: {id=123}", resolver);
 
-		returnType = forClass(Model.class);
+		returnType = on(TestController.class).resolveReturnType(Model.class);
 		returnValue = new ConcurrentModel().addAttribute("name", "Joe");
 		testHandle("/account", returnType, returnValue, "account: {id=123, name=Joe}", resolver);
 
-		returnType = forClass(Map.class);
+		returnType = on(TestController.class).resolveReturnType(Map.class);
 		returnValue = Collections.singletonMap("name", "Joe");
 		testHandle("/account", returnType, returnValue, "account: {id=123, name=Joe}", resolver);
 
-		returnType = forClass(TestBean.class);
+		returnType = on(TestController.class).resolveReturnType(TestBean.class);
 		returnValue = new TestBean("Joe");
 		String responseBody = "account: {" +
 				"id=123, " +
@@ -162,14 +157,14 @@ public class ViewResolutionResultHandlerTests {
 				"}";
 		testHandle("/account", returnType, returnValue, responseBody, resolver);
 
-		testHandle("/account", resolvableMethod().annotated(ModelAttribute.class),
-				99L, "account: {id=123, num=99}", resolver);
+		returnType = on(TestController.class).annotPresent(ModelAttribute.class).resolveReturnType();
+		testHandle("/account", returnType, 99L, "account: {id=123, num=99}", resolver);
 	}
 
 	@Test
 	public void handleWithMultipleResolvers() throws Exception {
 		Object returnValue = "profile";
-		ResolvableType returnType = forClass(String.class);
+		MethodParameter returnType = on(TestController.class).resolveReturnType(String.class);
 		ViewResolver[] resolvers = {new TestViewResolver("account"), new TestViewResolver("profile")};
 
 		testHandle("/account", returnType, returnValue, "profile: {id=123}", resolvers);
@@ -177,41 +172,37 @@ public class ViewResolutionResultHandlerTests {
 
 	@Test
 	public void defaultViewName() throws Exception {
-		testDefaultViewName(null, forClass(String.class));
-		testDefaultViewName(Mono.empty(), forClassWithGenerics(Mono.class, String.class));
-		testDefaultViewName(Mono.empty(), forClassWithGenerics(Mono.class, Void.class));
-		testDefaultViewName(Completable.complete(), forClass(Completable.class));
+		testDefaultViewName(null, on(TestController.class).resolveReturnType(String.class));
+		testDefaultViewName(Mono.empty(), on(TestController.class).resolveReturnType(Mono.class, String.class));
+		testDefaultViewName(Mono.empty(), on(TestController.class).resolveReturnType(Mono.class, Void.class));
+		testDefaultViewName(Completable.complete(), on(TestController.class).resolveReturnType(Completable.class));
 	}
 
-	private void testDefaultViewName(Object returnValue, ResolvableType type) throws URISyntaxException {
+	private void testDefaultViewName(Object returnValue, MethodParameter returnType) throws URISyntaxException {
 		this.bindingContext.getModel().addAttribute("id", "123");
-		HandlerResult result = new HandlerResult(new Object(), returnValue, returnType(type), this.bindingContext);
+		HandlerResult result = new HandlerResult(new Object(), returnValue, returnType, this.bindingContext);
 		ViewResolutionResultHandler handler = resultHandler(new TestViewResolver("account"));
 
-		this.request = MockServerHttpRequest.get("/account").build();
-		ServerWebExchange exchange = createExchange();
-		handler.handleResult(exchange, result).blockMillis(5000);
+		MockServerWebExchange exchange = get("/account").toExchange();
+		handler.handleResult(exchange, result).block(Duration.ofMillis(5000));
 		assertResponseBody(exchange, "account: {id=123}");
 
-		this.request = MockServerHttpRequest.get("/account/").build();
-		exchange = createExchange();
-		handler.handleResult(exchange, result).blockMillis(5000);
+		exchange = get("/account/").toExchange();
+		handler.handleResult(exchange, result).block(Duration.ofMillis(5000));
 		assertResponseBody(exchange, "account: {id=123}");
 
-		this.request = MockServerHttpRequest.get("/account.123").build();
-		exchange = createExchange();
-		handler.handleResult(exchange, result).blockMillis(5000);
+		exchange = get("/account.123").toExchange();
+		handler.handleResult(exchange, result).block(Duration.ofMillis(5000));
 		assertResponseBody(exchange, "account: {id=123}");
 	}
 
 	@Test
 	public void unresolvedViewName() throws Exception {
 		String returnValue = "account";
-		MethodParameter returnType = returnType(forClass(String.class));
+		MethodParameter returnType = on(TestController.class).resolveReturnType(String.class);
 		HandlerResult result = new HandlerResult(new Object(), returnValue, returnType, this.bindingContext);
 
-		this.request = MockServerHttpRequest.get("/path").build();
-		ServerWebExchange exchange = createExchange();
+		MockServerWebExchange exchange = get("/path").toExchange();
 		Mono<Void> mono = resultHandler().handleResult(exchange, result);
 
 		StepVerifier.create(mono)
@@ -223,11 +214,10 @@ public class ViewResolutionResultHandlerTests {
 	@Test
 	public void contentNegotiation() throws Exception {
 		TestBean value = new TestBean("Joe");
-		MethodParameter returnType = returnType(forClass(TestBean.class));
+		MethodParameter returnType = on(TestController.class).resolveReturnType(TestBean.class);
 		HandlerResult handlerResult = new HandlerResult(new Object(), value, returnType, this.bindingContext);
 
-		this.request = MockServerHttpRequest.get("/account").accept(APPLICATION_JSON).build();
-		ServerWebExchange exchange = createExchange();
+		MockServerWebExchange exchange = get("/account").accept(APPLICATION_JSON).toExchange();
 
 		TestView defaultView = new TestView("jsonView", APPLICATION_JSON);
 
@@ -246,11 +236,10 @@ public class ViewResolutionResultHandlerTests {
 	@Test
 	public void contentNegotiationWith406() throws Exception {
 		TestBean value = new TestBean("Joe");
-		MethodParameter returnType = returnType(forClass(TestBean.class));
+		MethodParameter returnType = on(TestController.class).resolveReturnType(TestBean.class);
 		HandlerResult handlerResult = new HandlerResult(new Object(), value, returnType, this.bindingContext);
 
-		this.request = MockServerHttpRequest.get("/account").accept(APPLICATION_JSON).build();
-		ServerWebExchange exchange = createExchange();
+		MockServerWebExchange exchange = get("/account").accept(APPLICATION_JSON).toExchange();
 
 		ViewResolutionResultHandler resultHandler = resultHandler(new TestViewResolver("account"));
 		Mono<Void> mono = resultHandler.handleResult(exchange, handlerResult);
@@ -269,14 +258,13 @@ public class ViewResolutionResultHandlerTests {
 				.addAttribute("attr4", Observable.just(new TestBean("Bean1"), new TestBean("Bean2")))
 				.addAttribute("attr5", Mono.empty());
 
-		ResolvableType type = forClass(void.class);
-		HandlerResult result = new HandlerResult(new Object(), null, returnType(type), this.bindingContext);
+		MethodParameter returnType = on(TestController.class).resolveReturnType(void.class);
+		HandlerResult result = new HandlerResult(new Object(), null, returnType, this.bindingContext);
 		ViewResolutionResultHandler handler = resultHandler(new TestViewResolver("account"));
 
-		this.request = MockServerHttpRequest.get("/account").build();
-		ServerWebExchange exchange = createExchange();
+		MockServerWebExchange exchange = get("/account").toExchange();
 
-		handler.handleResult(exchange, result).blockMillis(5000);
+		handler.handleResult(exchange, result).block(Duration.ofMillis(5000));
 		assertResponseBody(exchange, "account: {" +
 				"attr1=TestBean[name=Bean1], " +
 				"attr2=[TestBean[name=Bean1], TestBean[name=Bean2]], " +
@@ -290,14 +278,6 @@ public class ViewResolutionResultHandlerTests {
 	}
 
 
-	private ServerWebExchange createExchange() {
-		return new DefaultServerWebExchange(this.request, new MockServerHttpResponse());
-	}
-
-	private MethodParameter returnType(ResolvableType type) {
-		return resolvableMethod().returning(type).resolveReturnType();
-	}
-
 	private ViewResolutionResultHandler resultHandler(ViewResolver... resolvers) {
 		return resultHandler(Collections.emptyList(), resolvers);
 	}
@@ -310,34 +290,21 @@ public class ViewResolutionResultHandlerTests {
 		return handler;
 	}
 
-	private ResolvableMethod resolvableMethod() {
-		return ResolvableMethod.onClass(TestController.class);
-	}
-
-	private ServerWebExchange testHandle(String path, ResolvableType returnType, Object returnValue,
-			String responseBody, ViewResolver... resolvers) throws URISyntaxException {
-
-		return testHandle(path, resolvableMethod().returning(returnType), returnValue, responseBody, resolvers);
-	}
-
-	private ServerWebExchange testHandle(String path, ResolvableMethod resolvableMethod, Object returnValue,
+	private ServerWebExchange testHandle(String path, MethodParameter returnType, Object returnValue,
 			String responseBody, ViewResolver... resolvers) throws URISyntaxException {
 
 		Model model = this.bindingContext.getModel();
 		model.asMap().clear();
 		model.addAttribute("id", "123");
-		MethodParameter returnType = resolvableMethod.resolveReturnType();
 		HandlerResult result = new HandlerResult(new Object(), returnValue, returnType, this.bindingContext);
-		this.request = MockServerHttpRequest.get(path).build();
-		ServerWebExchange exchange = createExchange();
+		MockServerWebExchange exchange = get(path).toExchange();
 		resultHandler(resolvers).handleResult(exchange, result).block(Duration.ofSeconds(5));
 		assertResponseBody(exchange, responseBody);
 		return exchange;
 	}
 
-	private void assertResponseBody(ServerWebExchange exchange, String responseBody) {
-		MockServerHttpResponse response = (MockServerHttpResponse) exchange.getResponse();
-		StepVerifier.create(response.getBody())
+	private void assertResponseBody(MockServerWebExchange exchange, String responseBody) {
+		StepVerifier.create(exchange.getResponse().getBody())
 				.consumeNextWith(buf -> assertEquals(responseBody, DataBufferTestUtils.dumpString(buf, UTF_8)))
 				.expectComplete()
 				.verify();
@@ -388,6 +355,7 @@ public class ViewResolutionResultHandlerTests {
 			this.mediaTypes = Arrays.asList(mediaTypes);
 		}
 
+		@SuppressWarnings("unused")
 		public String getName() {
 			return this.name;
 		}
@@ -420,6 +388,7 @@ public class ViewResolutionResultHandlerTests {
 			this.name = name;
 		}
 
+		@SuppressWarnings("unused")
 		public String getName() {
 			return this.name;
 		}
@@ -473,7 +442,7 @@ public class ViewResolutionResultHandlerTests {
 			return null;
 		}
 
-		Map map() {
+		Map<?,?> map() {
 			return null;
 		}
 

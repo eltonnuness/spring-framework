@@ -28,12 +28,11 @@ import org.springframework.core.ReactiveAdapterRegistry;
 import org.springframework.core.ResolvableType;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.HttpMessageWriter;
-import org.springframework.http.codec.ServerHttpMessageWriter;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.util.Assert;
 import org.springframework.web.reactive.accept.RequestedContentTypeResolver;
-import org.springframework.web.reactive.result.AbstractHandlerResultHandler;
+import org.springframework.web.reactive.result.HandlerResultHandlerSupport;
 import org.springframework.web.server.NotAcceptableStatusException;
 import org.springframework.web.server.ServerWebExchange;
 
@@ -44,7 +43,7 @@ import org.springframework.web.server.ServerWebExchange;
  * @author Rossen Stoyanchev
  * @since 5.0
  */
-public abstract class AbstractMessageWriterResultHandler extends AbstractHandlerResultHandler {
+public abstract class AbstractMessageWriterResultHandler extends HandlerResultHandlerSupport {
 
 	private final List<HttpMessageWriter<?>> messageWriters;
 
@@ -93,21 +92,19 @@ public abstract class AbstractMessageWriterResultHandler extends AbstractHandler
 	@SuppressWarnings("unchecked")
 	protected Mono<Void> writeBody(Object body, MethodParameter bodyParameter, ServerWebExchange exchange) {
 
-		ResolvableType valueType = ResolvableType.forMethodParameter(bodyParameter);
-		Class<?> valueClass = valueType.resolve();
-		ReactiveAdapter adapter = getAdapterRegistry().getAdapter(valueClass, body);
+		ResolvableType bodyType = ResolvableType.forMethodParameter(bodyParameter);
+		Class<?> bodyClass = bodyType.resolve();
+		ReactiveAdapter adapter = getAdapterRegistry().getAdapter(bodyClass, body);
 
 		Publisher<?> publisher;
 		ResolvableType elementType;
 		if (adapter != null) {
 			publisher = adapter.toPublisher(body);
-			elementType = adapter.isNoValue() ?
-					ResolvableType.forClass(Void.class) : valueType.getGeneric(0);
+			elementType = adapter.isNoValue() ? ResolvableType.forClass(Void.class) : bodyType.getGeneric(0);
 		}
 		else {
 			publisher = Mono.justOrEmpty(body);
-			elementType = (valueClass == null && body != null ?
-					ResolvableType.forInstance(body) : valueType);
+			elementType = (bodyClass == null && body != null ? ResolvableType.forInstance(body) : bodyType);
 		}
 
 		if (void.class == elementType.getRawClass() || Void.class == elementType.getRawClass()) {
@@ -118,13 +115,10 @@ public abstract class AbstractMessageWriterResultHandler extends AbstractHandler
 		ServerHttpResponse response = exchange.getResponse();
 		MediaType bestMediaType = selectMediaType(exchange, () -> getProducibleMediaTypes(elementType));
 		if (bestMediaType != null) {
-			for (HttpMessageWriter<?> messageWriter : getMessageWriters()) {
-				if (messageWriter.canWrite(elementType, bestMediaType)) {
-					return (messageWriter instanceof ServerHttpMessageWriter ?
-							((ServerHttpMessageWriter<?>) messageWriter).write((Publisher) publisher,
-									valueType, elementType, bestMediaType, request, response, Collections.emptyMap()) :
-							messageWriter.write((Publisher) publisher, elementType,
-									bestMediaType, response, Collections.emptyMap()));
+			for (HttpMessageWriter<?> writer : getMessageWriters()) {
+				if (writer.canWrite(elementType, bestMediaType)) {
+					return writer.write((Publisher) publisher, bodyType, elementType,
+							bestMediaType, request, response, Collections.emptyMap());
 				}
 			}
 		}

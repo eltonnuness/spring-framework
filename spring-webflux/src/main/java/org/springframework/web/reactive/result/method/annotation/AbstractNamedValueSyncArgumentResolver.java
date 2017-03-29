@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import reactor.core.publisher.Mono;
 
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.core.MethodParameter;
+import org.springframework.core.ReactiveAdapterRegistry;
 import org.springframework.web.reactive.BindingContext;
 import org.springframework.web.reactive.result.method.SyncHandlerMethodArgumentResolver;
 import org.springframework.web.server.ServerWebExchange;
@@ -38,35 +39,47 @@ import org.springframework.web.server.ServerWebExchange;
 public abstract class AbstractNamedValueSyncArgumentResolver extends AbstractNamedValueArgumentResolver
 		implements SyncHandlerMethodArgumentResolver {
 
-	public AbstractNamedValueSyncArgumentResolver(ConfigurableBeanFactory beanFactory) {
-		super(beanFactory);
+	/**
+	 * @param factory a bean factory to use for resolving  ${...}
+	 * placeholder and #{...} SpEL expressions in default values;
+	 * or {@code null} if default values are not expected to have expressions
+	 * @param registry for checking reactive type wrappers
+	 */
+	protected AbstractNamedValueSyncArgumentResolver(ConfigurableBeanFactory factory, ReactiveAdapterRegistry registry) {
+		super(factory, registry);
 	}
 
 
 	@Override
-	public Optional<Object> resolveArgumentValue(MethodParameter parameter,
-			BindingContext bindingContext, ServerWebExchange exchange) {
+	public Mono<Object> resolveArgument(
+			MethodParameter parameter, BindingContext bindingContext, ServerWebExchange exchange) {
 
-		// This will not block
-		Object value = resolveArgument(parameter, bindingContext, exchange).block();
+		// Flip the default implementation from SyncHandlerMethodArgumentResolver:
+		// instead of delegating to (sync) resolveArgumentValue,
+		// call (async) super.resolveArgument shared with non-blocking resolvers;
+		// actual resolution below still sync...
+
+		return super.resolveArgument(parameter, bindingContext, exchange);
+	}
+
+	@Override
+	public Optional<Object> resolveArgumentValue(
+			MethodParameter parameter, BindingContext context, ServerWebExchange exchange) {
+
+		// This won't block since resolveName below doesn't
+		Object value = resolveArgument(parameter, context, exchange).block();
+
 		return Optional.ofNullable(value);
 	}
 
 	@Override
-	protected Mono<Object> resolveName(String name, MethodParameter parameter, ServerWebExchange exchange) {
-		return Mono.justOrEmpty(resolveNamedValue(name, parameter, exchange));
+	protected final Mono<Object> resolveName(String name, MethodParameter param, ServerWebExchange exchange) {
+		return Mono.justOrEmpty(resolveNamedValue(name, param, exchange));
 	}
 
 	/**
-	 * An abstract method for synchronous resolution of method argument values
-	 * that sub-classes must implement.
-	 * @param name the name of the value being resolved
-	 * @param parameter the method parameter to resolve to an argument value
-	 * (pre-nested in case of a {@link java.util.Optional} declaration)
-	 * @param exchange the current exchange
-	 * @return the resolved argument value, if any
+	 * Actually resolve the value synchronously.
 	 */
-	protected abstract Optional<Object> resolveNamedValue(String name, MethodParameter parameter,
-			ServerWebExchange exchange);
+	protected abstract Optional<Object> resolveNamedValue(String name, MethodParameter param, ServerWebExchange exchange);
 
 }

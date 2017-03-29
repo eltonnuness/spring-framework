@@ -49,16 +49,18 @@ import reactor.core.publisher.Mono
  * 	}
  * ```
  *
+ * @author Sebastien Deleuze
+ * @author Yevhenii Melnyk
  * @since 5.0
  * @see <a href="https://youtrack.jetbrains.com/issue/KT-15667">Kotlin issue about supporting ::foo for member functions</a>
- * @author Sebastien De leuze
- * @author Yevhenii Melnyk
  */
 
 typealias Routes = RouterDsl.() -> Unit
 
-fun RouterFunction<*>.route(request: ServerRequest, configure: Routes) =
-		RouterDsl().apply(configure).invoke(request)
+/**
+ * Allow to create easily a [RouterFunction] from [Routes]
+ */
+fun router(routes: Routes) = RouterDsl().apply(routes).router()
 
 class RouterDsl {
 
@@ -78,11 +80,11 @@ class RouterDsl {
 
 	operator fun RequestPredicate.not(): RequestPredicate = this.negate()
 
-	fun RequestPredicate.route(r: Routes) {
+	fun RequestPredicate.nest(r: Routes) {
 		routes += RouterFunctions.nest(this, RouterDsl().apply(r).router())
 	}
 
-	fun String.route(r: Routes) {
+	fun String.nest(r: Routes) {
 		routes += RouterFunctions.nest(pathPrefix(this), RouterDsl().apply(r).router())
 	}
 
@@ -174,7 +176,6 @@ class RouterDsl {
 	}
 
 	fun pathExtension(predicate: (String) -> Boolean) = RequestPredicates.pathExtension(predicate)
-
 
 	fun queryParam(name: String, predicate: (String) -> Boolean, f: (ServerRequest) -> Mono<ServerResponse>) {
 		routes += RouterFunctions.route(RequestPredicates.queryParam(name, predicate), HandlerFunction { f(it) })

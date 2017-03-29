@@ -24,8 +24,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
@@ -34,6 +34,7 @@ import reactor.core.publisher.Mono;
 import org.springframework.core.ResolvableType;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ClientHttpConnector;
 import org.springframework.http.client.reactive.ClientHttpRequest;
@@ -43,6 +44,7 @@ import org.springframework.web.reactive.function.BodyInserter;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.util.UriBuilder;
 
 import static java.util.stream.Collectors.toList;
@@ -64,23 +66,29 @@ class DefaultWebTestClient implements WebTestClient {
 
 	private final WiretapConnector wiretapConnector;
 
+	private final ExchangeMutatorWebFilter exchangeMutatorWebFilter;
+
 	private final Duration timeout;
 
 	private final AtomicLong requestIndex = new AtomicLong();
 
 
-	DefaultWebTestClient(WebClient.Builder webClientBuilder, ClientHttpConnector connector, Duration timeout) {
+	DefaultWebTestClient(WebClient.Builder webClientBuilder, ClientHttpConnector connector,
+			ExchangeMutatorWebFilter webFilter, Duration timeout) {
+
 		Assert.notNull(webClientBuilder, "WebClient.Builder is required");
 
 		this.wiretapConnector = new WiretapConnector(connector);
 		this.webClient = webClientBuilder.clientConnector(this.wiretapConnector).build();
+		this.exchangeMutatorWebFilter = webFilter;
 		this.timeout = (timeout != null ? timeout : Duration.ofSeconds(5));
 	}
 
 	private DefaultWebTestClient(DefaultWebTestClient webTestClient, ExchangeFilterFunction filter) {
 		this.webClient = webTestClient.webClient.filter(filter);
-		this.timeout = webTestClient.timeout;
 		this.wiretapConnector = webTestClient.wiretapConnector;
+		this.exchangeMutatorWebFilter = webTestClient.exchangeMutatorWebFilter;
+		this.timeout = webTestClient.timeout;
 	}
 
 
@@ -90,42 +98,45 @@ class DefaultWebTestClient implements WebTestClient {
 
 
 	@Override
-	public UriSpec get() {
-		return toUriSpec(WebClient::get);
+	public UriSpec<RequestHeadersSpec<?>> get() {
+		return toUriSpec(wc -> wc.method(HttpMethod.GET));
 	}
 
 	@Override
-	public UriSpec head() {
-		return toUriSpec(WebClient::head);
+	public UriSpec<RequestHeadersSpec<?>> head() {
+		return toUriSpec(wc -> wc.method(HttpMethod.HEAD));
 	}
 
 	@Override
-	public UriSpec post() {
-		return toUriSpec(WebClient::post);
+	public UriSpec<RequestBodySpec> post() {
+		return toUriSpec(wc -> wc.method(HttpMethod.POST));
 	}
 
 	@Override
-	public UriSpec put() {
-		return toUriSpec(WebClient::put);
+	public UriSpec<RequestBodySpec> put() {
+		return toUriSpec(wc -> wc.method(HttpMethod.PUT));
 	}
 
 	@Override
-	public UriSpec patch() {
-		return toUriSpec(WebClient::patch);
+	public UriSpec<RequestBodySpec> patch() {
+		return toUriSpec(wc -> wc.method(HttpMethod.PATCH));
 	}
 
 	@Override
-	public UriSpec delete() {
-		return toUriSpec(WebClient::delete);
+	public UriSpec<RequestHeadersSpec<?>> delete() {
+		return toUriSpec(wc -> wc.method(HttpMethod.DELETE));
 	}
 
 	@Override
-	public UriSpec options() {
-		return toUriSpec(WebClient::options);
+	public UriSpec<RequestHeadersSpec<?>> options() {
+		return toUriSpec(wc -> wc.method(HttpMethod.OPTIONS));
 	}
 
-	private UriSpec toUriSpec(Function<WebClient, WebClient.UriSpec> function) {
-		return new DefaultUriSpec(function.apply(this.webClient));
+	@SuppressWarnings("unchecked")
+	private <S extends RequestHeadersSpec<?>> UriSpec<S> toUriSpec(
+			Function<WebClient, WebClient.UriSpec<WebClient.RequestBodySpec>> function) {
+
+		return new DefaultUriSpec<>(function.apply(this.webClient));
 	}
 
 
@@ -134,124 +145,147 @@ class DefaultWebTestClient implements WebTestClient {
 		return new DefaultWebTestClient(this, filter);
 	}
 
+	@Override
+	public WebTestClient exchangeMutator(UnaryOperator<ServerWebExchange> mutator) {
 
-	private class DefaultUriSpec implements UriSpec {
+		Assert.notNull(this.exchangeMutatorWebFilter,
+				"This option is applicable only for tests without an actual running server");
 
-		private final WebClient.UriSpec uriSpec;
+		return filter((request, next) -> {
+			String requestId = request.headers().getFirst(WiretapConnector.REQUEST_ID_HEADER_NAME);
+			Assert.notNull(requestId, "No request-id header");
+			this.exchangeMutatorWebFilter.register(requestId, mutator);
+			return next.exchange(request);
+		});
+	}
 
 
-		DefaultUriSpec(WebClient.UriSpec spec) {
+	@SuppressWarnings("unchecked")
+	private class DefaultUriSpec<S extends RequestHeadersSpec<?>> implements UriSpec<S> {
+
+		private final WebClient.UriSpec<WebClient.RequestBodySpec> uriSpec;
+
+
+		DefaultUriSpec(WebClient.UriSpec<WebClient.RequestBodySpec> spec) {
 			this.uriSpec = spec;
 		}
 
 		@Override
-		public HeaderSpec uri(URI uri) {
-			return new DefaultHeaderSpec(this.uriSpec.uri(uri));
+		public S uri(URI uri) {
+			return (S) new DefaultRequestBodySpec(this.uriSpec.uri(uri));
 		}
 
 		@Override
-		public HeaderSpec uri(String uriTemplate, Object... uriVariables) {
-			return new DefaultHeaderSpec(this.uriSpec.uri(uriTemplate, uriVariables));
+		public S uri(String uriTemplate, Object... uriVariables) {
+			return (S) new DefaultRequestBodySpec(this.uriSpec.uri(uriTemplate, uriVariables));
 		}
 
 		@Override
-		public HeaderSpec uri(String uriTemplate, Map<String, ?> uriVariables) {
-			return new DefaultHeaderSpec(this.uriSpec.uri(uriTemplate, uriVariables));
+		public S uri(String uriTemplate, Map<String, ?> uriVariables) {
+			return (S) new DefaultRequestBodySpec(this.uriSpec.uri(uriTemplate, uriVariables));
 		}
 
 		@Override
-		public HeaderSpec uri(Function<UriBuilder, URI> uriBuilder) {
-			return new DefaultHeaderSpec(this.uriSpec.uri(uriBuilder));
+		public S uri(Function<UriBuilder, URI> uriBuilder) {
+			return (S) new DefaultRequestBodySpec(this.uriSpec.uri(uriBuilder));
 		}
 	}
 
-	private class DefaultHeaderSpec implements WebTestClient.HeaderSpec {
+	private class DefaultRequestBodySpec implements RequestBodySpec {
 
-		private final WebClient.HeaderSpec headerSpec;
+		private final WebClient.RequestBodySpec bodySpec;
 
 		private final String requestId;
 
 
-		DefaultHeaderSpec(WebClient.HeaderSpec spec) {
-			this.headerSpec = spec;
+		DefaultRequestBodySpec(WebClient.RequestBodySpec spec) {
+			this.bodySpec = spec;
 			this.requestId = String.valueOf(requestIndex.incrementAndGet());
-			this.headerSpec.header(WiretapConnector.REQUEST_ID_HEADER_NAME, this.requestId);
+			this.bodySpec.header(WiretapConnector.REQUEST_ID_HEADER_NAME, this.requestId);
 		}
 
 
 		@Override
-		public DefaultHeaderSpec header(String headerName, String... headerValues) {
-			this.headerSpec.header(headerName, headerValues);
+		public RequestBodySpec header(String headerName, String... headerValues) {
+			this.bodySpec.header(headerName, headerValues);
 			return this;
 		}
 
 		@Override
-		public DefaultHeaderSpec headers(HttpHeaders headers) {
-			this.headerSpec.headers(headers);
+		public RequestBodySpec headers(HttpHeaders headers) {
+			this.bodySpec.headers(headers);
 			return this;
 		}
 
 		@Override
-		public DefaultHeaderSpec accept(MediaType... acceptableMediaTypes) {
-			this.headerSpec.accept(acceptableMediaTypes);
+		public RequestBodySpec accept(MediaType... acceptableMediaTypes) {
+			this.bodySpec.accept(acceptableMediaTypes);
 			return this;
 		}
 
 		@Override
-		public DefaultHeaderSpec acceptCharset(Charset... acceptableCharsets) {
-			this.headerSpec.acceptCharset(acceptableCharsets);
+		public RequestBodySpec acceptCharset(Charset... acceptableCharsets) {
+			this.bodySpec.acceptCharset(acceptableCharsets);
 			return this;
 		}
 
 		@Override
-		public DefaultHeaderSpec contentType(MediaType contentType) {
-			this.headerSpec.contentType(contentType);
+		public RequestBodySpec contentType(MediaType contentType) {
+			this.bodySpec.contentType(contentType);
 			return this;
 		}
 
 		@Override
-		public DefaultHeaderSpec contentLength(long contentLength) {
-			this.headerSpec.contentLength(contentLength);
+		public RequestBodySpec contentLength(long contentLength) {
+			this.bodySpec.contentLength(contentLength);
 			return this;
 		}
 
 		@Override
-		public DefaultHeaderSpec cookie(String name, String value) {
-			this.headerSpec.cookie(name, value);
+		public RequestBodySpec cookie(String name, String value) {
+			this.bodySpec.cookie(name, value);
 			return this;
 		}
 
 		@Override
-		public DefaultHeaderSpec cookies(MultiValueMap<String, String> cookies) {
-			this.headerSpec.cookies(cookies);
+		public RequestBodySpec cookies(MultiValueMap<String, String> cookies) {
+			this.bodySpec.cookies(cookies);
 			return this;
 		}
 
 		@Override
-		public DefaultHeaderSpec ifModifiedSince(ZonedDateTime ifModifiedSince) {
-			this.headerSpec.ifModifiedSince(ifModifiedSince);
+		public RequestBodySpec ifModifiedSince(ZonedDateTime ifModifiedSince) {
+			this.bodySpec.ifModifiedSince(ifModifiedSince);
 			return this;
 		}
 
 		@Override
-		public DefaultHeaderSpec ifNoneMatch(String... ifNoneMatches) {
-			this.headerSpec.ifNoneMatch(ifNoneMatches);
+		public RequestBodySpec ifNoneMatch(String... ifNoneMatches) {
+			this.bodySpec.ifNoneMatch(ifNoneMatches);
 			return this;
 		}
 
 		@Override
 		public ResponseSpec exchange() {
-			return toResponseSpec(this.headerSpec.exchange());
+			return toResponseSpec(this.bodySpec.exchange());
 		}
 
 		@Override
-		public <T> ResponseSpec exchange(BodyInserter<T, ? super ClientHttpRequest> inserter) {
-			return toResponseSpec(this.headerSpec.exchange(inserter));
+		public <T> RequestHeadersSpec<?> body(BodyInserter<T, ? super ClientHttpRequest> inserter) {
+			this.bodySpec.body(inserter);
+			return this;
 		}
 
 		@Override
-		public <T, S extends Publisher<T>> ResponseSpec exchange(S publisher, Class<T> elementClass) {
-			return toResponseSpec(this.headerSpec.exchange(publisher, elementClass));
+		public <T, S extends Publisher<T>> RequestHeadersSpec<?> body(S publisher, Class<T> elementClass) {
+			this.bodySpec.body(publisher, elementClass);
+			return this;
+		}
+
+		@Override
+		public <T> RequestHeadersSpec<?> body(T body) {
+			this.bodySpec.body(body);
+			return this;
 		}
 
 		private DefaultResponseSpec toResponseSpec(Mono<ClientResponse> mono) {
@@ -291,7 +325,7 @@ class DefaultWebTestClient implements WebTestClient {
 
 		public <T> FluxExchangeResult<T> decodeBody(ResolvableType elementType) {
 			Flux<T> body = this.response.body(toFlux(elementType));
-			return new FluxExchangeResult<>(this, body);
+			return new FluxExchangeResult<>(this, body, getTimeout());
 		}
 
 		@SuppressWarnings("unchecked")
@@ -339,17 +373,6 @@ class DefaultWebTestClient implements WebTestClient {
 		@Override
 		public BodySpec expectBody() {
 			return new DefaultBodySpec(this.result);
-		}
-
-		@Override
-		public ResponseSpec consumeWith(Consumer<ExchangeResult> consumer) {
-			this.result.assertWithDiagnostics(() -> consumer.accept(this.result));
-			return this;
-		}
-
-		@Override
-		public ExchangeResult returnResult() {
-			return this.result;
 		}
 	}
 

@@ -18,6 +18,7 @@ package org.springframework.web.reactive.function.server;
 
 import java.util.Map;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -27,8 +28,8 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.server.reactive.HttpHandler;
 import org.springframework.util.Assert;
 import org.springframework.web.reactive.HandlerMapping;
-import org.springframework.web.reactive.function.server.support.HandlerFunctionAdapter;
-import org.springframework.web.reactive.function.server.support.ServerResponseResultHandler;
+import org.springframework.web.reactive.function.server.support.*;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebHandler;
 import org.springframework.web.server.adapter.HttpWebHandlerAdapter;
@@ -155,7 +156,7 @@ public abstract class RouterFunctions {
 	 * For instance
 	 * <pre class="code">
 	 * Resource location = new FileSystemResource("public-resources/");
-	 * RoutingFunction&lt;Resource&gt; resources = RouterFunctions.resources("/resources/**", location);
+	 * RoutingFunction&lt;ServerResponse&gt; resources = RouterFunctions.resources("/resources/**", location);
      * </pre>
 	 * @param pattern the pattern to match
 	 * @param location the location directory relative to which resources should be resolved
@@ -232,9 +233,23 @@ public abstract class RouterFunctions {
 			addAttributes(exchange, request);
 			return routerFunction.route(request)
 					.defaultIfEmpty(notFound())
-					.then(handlerFunction -> handlerFunction.handle(request))
-					.then(response -> response.writeTo(exchange, strategies));
+					.then(handlerFunction -> wrapException(() -> handlerFunction.handle(request)))
+					.then(response -> wrapException(() -> response.writeTo(exchange, strategies)))
+					.otherwise(ResponseStatusException.class,
+							ex -> {
+								exchange.getResponse().setStatusCode(ex.getStatus());
+								return Mono.empty();
+							});
 		});
+	}
+
+	private static <T> Mono<T> wrapException(Supplier<Mono<T>> supplier) {
+		try {
+			return supplier.get();
+		}
+		catch (Throwable t) {
+			return Mono.error(t);
+		}
 	}
 
 	/**
@@ -272,7 +287,6 @@ public abstract class RouterFunctions {
 			return routerFunction.route(request).map(handlerFunction -> (Object)handlerFunction);
 		};
 	}
-
 
 	private static void addAttributes(ServerWebExchange exchange, ServerRequest request) {
 		Map<String, Object> attributes = exchange.getAttributes();

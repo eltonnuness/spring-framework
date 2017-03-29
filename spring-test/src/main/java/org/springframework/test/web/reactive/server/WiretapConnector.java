@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.springframework.test.web.reactive.server;
 
 import java.net.URI;
@@ -23,6 +24,7 @@ import java.util.function.Function;
 
 import reactor.core.publisher.Mono;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.client.reactive.ClientHttpConnector;
 import org.springframework.http.client.reactive.ClientHttpRequest;
@@ -36,7 +38,6 @@ import org.springframework.util.Assert;
  *
  * @author Rossen Stoyanchev
  * @since 5.0
- *
  * @see HttpHandlerConnector
  */
 class WiretapConnector implements ClientHttpConnector {
@@ -68,13 +69,19 @@ class WiretapConnector implements ClientHttpConnector {
 				})
 				.map(response ->  {
 					WiretapClientHttpRequest wrappedRequest = requestRef.get();
-					String requestId = wrappedRequest.getHeaders().getFirst(REQUEST_ID_HEADER_NAME);
+					String requestId = getRequestId(wrappedRequest.getHeaders());
 					Assert.notNull(requestId, "No request-id header");
 					WiretapClientHttpResponse wrappedResponse = new WiretapClientHttpResponse(response);
 					ExchangeResult result = new ExchangeResult(wrappedRequest, wrappedResponse);
 					this.exchanges.put(requestId, result);
 					return wrappedResponse;
 				});
+	}
+
+	public static String getRequestId(HttpHeaders headers) {
+		String requestId = headers.getFirst(REQUEST_ID_HEADER_NAME);
+		Assert.notNull(requestId, "No request-id header");
+		return requestId;
 	}
 
 	/**

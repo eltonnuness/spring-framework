@@ -22,6 +22,7 @@ import java.util.Optional;
 
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.core.MethodParameter;
+import org.springframework.core.ReactiveAdapterRegistry;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.server.ServerWebExchange;
@@ -46,19 +47,23 @@ import org.springframework.web.server.ServerWebInputException;
 public class RequestHeaderMethodArgumentResolver extends AbstractNamedValueSyncArgumentResolver {
 
 	/**
-	 * @param beanFactory a bean factory to use for resolving  ${...}
+	 * @param factory a bean factory to use for resolving  ${...}
 	 * placeholder and #{...} SpEL expressions in default values;
 	 * or {@code null} if default values are not expected to have expressions
+	 * @param registry for checking reactive type wrappers
 	 */
-	public RequestHeaderMethodArgumentResolver(ConfigurableBeanFactory beanFactory) {
-		super(beanFactory);
+	public RequestHeaderMethodArgumentResolver(ConfigurableBeanFactory factory, ReactiveAdapterRegistry registry) {
+		super(factory, registry);
 	}
 
 
 	@Override
-	public boolean supportsParameter(MethodParameter parameter) {
-		return (parameter.hasParameterAnnotation(RequestHeader.class) &&
-				!Map.class.isAssignableFrom(parameter.nestedIfOptional().getNestedParameterType()));
+	public boolean supportsParameter(MethodParameter param) {
+		return checkAnnotatedParamNoReactiveWrapper(param, RequestHeader.class, this::singleParam);
+	}
+
+	private boolean singleParam(RequestHeader annotation, Class<?> type) {
+		return !Map.class.isAssignableFrom(type);
 	}
 
 	@Override

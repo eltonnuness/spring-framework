@@ -27,11 +27,12 @@ import org.springframework.beans.factory.config.BeanExpressionContext;
 import org.springframework.beans.factory.config.BeanExpressionResolver;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.core.MethodParameter;
+import org.springframework.core.ReactiveAdapterRegistry;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.ValueConstants;
 import org.springframework.web.reactive.BindingContext;
-import org.springframework.web.reactive.result.method.HandlerMethodArgumentResolver;
+import org.springframework.web.reactive.result.method.HandlerMethodArgumentResolverSupport;
 import org.springframework.web.server.ServerErrorException;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.ServerWebInputException;
@@ -56,7 +57,7 @@ import org.springframework.web.server.ServerWebInputException;
  * @author Rossen Stoyanchev
  * @since 5.0
  */
-public abstract class AbstractNamedValueArgumentResolver implements HandlerMethodArgumentResolver {
+public abstract class AbstractNamedValueArgumentResolver extends HandlerMethodArgumentResolverSupport {
 
 	private final ConfigurableBeanFactory configurableBeanFactory;
 
@@ -66,19 +67,21 @@ public abstract class AbstractNamedValueArgumentResolver implements HandlerMetho
 
 
 	/**
-	 * @param beanFactory a bean factory to use for resolving ${...} placeholder
+	 * @param factory a bean factory to use for resolving ${...} placeholder
 	 * and #{...} SpEL expressions in default values, or {@code null} if default
 	 * values are not expected to contain expressions
+	 * @param registry for checking reactive type wrappers
 	 */
-	public AbstractNamedValueArgumentResolver(ConfigurableBeanFactory beanFactory) {
-		this.configurableBeanFactory = beanFactory;
-		this.expressionContext = (beanFactory != null ? new BeanExpressionContext(beanFactory, null) : null);
+	public AbstractNamedValueArgumentResolver(ConfigurableBeanFactory factory, ReactiveAdapterRegistry registry) {
+		super(registry);
+		this.configurableBeanFactory = factory;
+		this.expressionContext = (factory != null ? new BeanExpressionContext(factory, null) : null);
 	}
 
 
 	@Override
-	public Mono<Object> resolveArgument(MethodParameter parameter, BindingContext bindingContext,
-			ServerWebExchange exchange) {
+	public Mono<Object> resolveArgument(
+			MethodParameter parameter, BindingContext bindingContext, ServerWebExchange exchange) {
 
 		NamedValueInfo namedValueInfo = getNamedValueInfo(parameter);
 		MethodParameter nestedParameter = parameter.nestedIfOptional();
@@ -168,9 +171,11 @@ public abstract class AbstractNamedValueArgumentResolver implements HandlerMetho
 	 * @param exchange the current exchange
 	 * @return the resolved argument (may be {@code null})
 	 */
-	protected abstract Mono<Object> resolveName(String name, MethodParameter parameter,
-			ServerWebExchange exchange);
+	protected abstract Mono<Object> resolveName(String name, MethodParameter parameter, ServerWebExchange exchange);
 
+	/**
+	 * Apply type conversion if necessary.
+	 */
 	private Object applyConversion(Object value, NamedValueInfo namedValueInfo, MethodParameter parameter,
 			BindingContext bindingContext, ServerWebExchange exchange) {
 
@@ -187,6 +192,9 @@ public abstract class AbstractNamedValueArgumentResolver implements HandlerMetho
 		return value;
 	}
 
+	/**
+	 * Resolve the default value, if any.
+	 */
 	private Mono<Object> getDefaultValue(NamedValueInfo namedValueInfo, MethodParameter parameter,
 			BindingContext bindingContext, Model model, ServerWebExchange exchange) {
 
@@ -264,8 +272,8 @@ public abstract class AbstractNamedValueArgumentResolver implements HandlerMetho
 	 * @param exchange the current exchange
 	 */
 	@SuppressWarnings("UnusedParameters")
-	protected void handleResolvedValue(Object arg, String name, MethodParameter parameter,
-			Model model, ServerWebExchange exchange) {
+	protected void handleResolvedValue(
+			Object arg, String name, MethodParameter parameter, Model model, ServerWebExchange exchange) {
 	}
 
 

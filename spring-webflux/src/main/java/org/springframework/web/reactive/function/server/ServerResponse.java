@@ -31,7 +31,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.http.codec.json.AbstractJackson2Codec;
+import org.springframework.http.codec.json.Jackson2CodecSupport;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.util.Assert;
 import org.springframework.web.reactive.function.BodyInserter;
@@ -126,6 +126,17 @@ public interface ServerResponse {
 	 */
 	static HeadersBuilder<?> noContent() {
 		return status(HttpStatus.NO_CONTENT);
+	}
+
+	/**
+	 * Create a builder with a {@linkplain HttpStatus#SEE_OTHER 303 See Other}
+	 * status and a location header set to the given URI.
+	 * @param location the location URI
+	 * @return the created builder
+	 */
+	static BodyBuilder seeOther(URI location) {
+		BodyBuilder builder = status(HttpStatus.SEE_OTHER);
+		return builder.location(location);
 	}
 
 	/**
@@ -315,7 +326,7 @@ public interface ServerResponse {
 		BodyBuilder contentType(MediaType contentType);
 
 		/**
-		 * Add a serialization hint like {@link AbstractJackson2Codec#JSON_VIEW_HINT}
+		 * Add a serialization hint like {@link Jackson2CodecSupport#JSON_VIEW_HINT}
 		 * to customize how the body will be serialized.
 		 * @param key the hint key
 		 * @param value the hint value

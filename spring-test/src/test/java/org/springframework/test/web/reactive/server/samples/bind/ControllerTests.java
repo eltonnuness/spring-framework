@@ -13,47 +13,110 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.springframework.test.web.reactive.server.samples.bind;
 
-import org.junit.Before;
+import java.security.Principal;
+import java.util.function.UnaryOperator;
+
 import org.junit.Test;
+import reactor.core.publisher.Mono;
 
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilter;
 
 /**
  * Bind to annotated controllers.
  *
  * @author Rossen Stoyanchev
+ * @since 5.0
  */
-@SuppressWarnings("unused")
 public class ControllerTests {
 
-	private WebTestClient client;
-
-
-	@Before
-	public void setUp() throws Exception {
-		this.client = WebTestClient.bindToController(new TestController()).build();
-	}
+	private final WebTestClient client = WebTestClient.bindToController(new TestController())
+			.exchangeMutator(principal("Pablo"))
+			.webFilter(prefixFilter("Mr."))
+			.build();
 
 
 	@Test
-	public void test() throws Exception {
-		this.client.get().uri("/test")
+	public void basic() throws Exception {
+		this.client.get().uri("/principal")
 				.exchange()
 				.expectStatus().isOk()
-				.expectBody(String.class).value().isEqualTo("It works!");
+				.expectBody(String.class).value().isEqualTo("Hello Mr. Pablo!");
+	}
+
+	@Test
+	public void perRequestExchangeMutator() throws Exception {
+		this.client.exchangeMutator(principal("Giovanni"))
+				.get().uri("/principal")
+				.exchange()
+				.expectStatus().isOk()
+				.expectBody(String.class).value().isEqualTo("Hello Mr. Giovanni!");
+	}
+
+	@Test
+	public void perRequestMultipleExchangeMutators() throws Exception {
+		this.client
+				.exchangeMutator(attribute("attr1", "foo"))
+				.exchangeMutator(attribute("attr2", "bar"))
+				.get().uri("/attributes")
+				.exchange()
+				.expectStatus().isOk()
+				.expectBody(String.class).value().isEqualTo("foo+bar");
+	}
+
+
+	private UnaryOperator<ServerWebExchange> principal(String userName) {
+		return exchange -> exchange.mutate().principal(Mono.just(new TestUser(userName))).build();
+	}
+
+	private WebFilter prefixFilter(String prefix) {
+		return (exchange, chain) -> {
+			Mono<Principal> user = exchange.getPrincipal().map(p -> new TestUser(prefix + " " + p.getName()));
+			return chain.filter(exchange.mutate().principal(user).build());
+		};
+	}
+
+	private UnaryOperator<ServerWebExchange> attribute(String attrName, String attrValue) {
+		return exchange -> {
+			exchange.getAttributes().put(attrName, attrValue);
+			return exchange;
+		};
 	}
 
 
 	@RestController
 	static class TestController {
 
-		@GetMapping("/test")
-		public String handle() {
-			return "It works!";
+		@GetMapping("/principal")
+		public String handle(Principal principal) {
+			return "Hello " + principal.getName() + "!";
+		}
+
+		@GetMapping("/attributes")
+		public String handle(@RequestAttribute String attr1, @RequestAttribute String attr2) {
+			return attr1 + "+" + attr2;
 		}
 	}
+
+	private static class TestUser implements Principal {
+
+		private final String name;
+
+		TestUser(String name) {
+			this.name = name;
+		}
+
+		@Override
+		public String getName() {
+			return this.name;
+		}
+	}
+
 }

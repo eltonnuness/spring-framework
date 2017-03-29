@@ -42,9 +42,7 @@ public class ReactorHttpServer extends AbstractHttpServer implements Loopback {
 	}
 
 	private ReactorHttpHandlerAdapter createHttpHandlerAdapter() {
-		return (getHttpHandlerMap() != null ?
-				new ReactorHttpHandlerAdapter(getHttpHandlerMap()) :
-				new ReactorHttpHandlerAdapter(getHttpHandler()));
+		return new ReactorHttpHandlerAdapter(resolveHttpHandler());
 	}
 
 	@Override

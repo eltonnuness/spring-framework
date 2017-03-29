@@ -19,6 +19,7 @@ import java.util.Optional;
 
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.core.MethodParameter;
+import org.springframework.core.ReactiveAdapterRegistry;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.ValueConstants;
 import org.springframework.web.server.ServerWebExchange;
@@ -34,14 +35,20 @@ import org.springframework.web.server.ServerWebInputException;
 public class RequestAttributeMethodArgumentResolver extends AbstractNamedValueSyncArgumentResolver {
 
 
-	public RequestAttributeMethodArgumentResolver(ConfigurableBeanFactory beanFactory) {
-		super(beanFactory);
+	/**
+	 * @param factory a bean factory to use for resolving  ${...}
+	 * placeholder and #{...} SpEL expressions in default values;
+	 * or {@code null} if default values are not expected to have expressions
+	 * @param registry for checking reactive type wrappers
+	 */
+	public RequestAttributeMethodArgumentResolver(ConfigurableBeanFactory factory, ReactiveAdapterRegistry registry) {
+		super(factory, registry);
 	}
 
 
 	@Override
-	public boolean supportsParameter(MethodParameter parameter) {
-		return parameter.hasParameterAnnotation(RequestAttribute.class);
+	public boolean supportsParameter(MethodParameter param) {
+		return checkAnnotatedParamNoReactiveWrapper(param, RequestAttribute.class, (annot, type) -> true);
 	}
 
 
@@ -52,9 +59,7 @@ public class RequestAttributeMethodArgumentResolver extends AbstractNamedValueSy
 	}
 
 	@Override
-	protected Optional<Object> resolveNamedValue(String name, MethodParameter parameter,
-			ServerWebExchange exchange) {
-
+	protected Optional<Object> resolveNamedValue(String name, MethodParameter parameter, ServerWebExchange exchange) {
 		return exchange.getAttribute(name);
 	}
 

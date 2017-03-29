@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.springframework.test.web.reactive.server.samples;
 
 import java.net.URI;
@@ -23,7 +24,6 @@ import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.junit.Before;
 import org.junit.Test;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -41,24 +41,18 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import static org.hamcrest.CoreMatchers.endsWith;
-import static org.junit.Assert.assertThat;
+import static org.junit.Assert.*;
 import static org.springframework.http.MediaType.TEXT_EVENT_STREAM;
 
 /**
  * Annotated controllers accepting and returning typed Objects.
  *
  * @author Rossen Stoyanchev
+ * @since 5.0
  */
-@SuppressWarnings("unused")
 public class ResponseEntityTests {
 
-	private WebTestClient client;
-
-
-	@Before
-	public void setUp() throws Exception {
-		this.client = WebTestClient.bindToController(new PersonController()).build();
-	}
+	private final WebTestClient client = WebTestClient.bindToController(new PersonController()).build();
 
 
 	@Test
@@ -121,7 +115,8 @@ public class ResponseEntityTests {
 	@Test
 	public void postEntity() throws Exception {
 		this.client.post().uri("/persons")
-				.exchange(Mono.just(new Person("John")), Person.class)
+				.body(Mono.just(new Person("John")), Person.class)
+				.exchange()
 				.expectStatus().isCreated()
 				.expectHeader().valueEquals("location", "/persons/John")
 				.expectBody().isEmpty();

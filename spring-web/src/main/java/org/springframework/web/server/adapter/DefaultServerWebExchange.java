@@ -44,7 +44,6 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.util.StringUtils;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebSession;
-import org.springframework.web.server.session.DefaultWebSessionManager;
 import org.springframework.web.server.session.WebSessionManager;
 
 /**
@@ -83,14 +82,6 @@ public class DefaultServerWebExchange implements ServerWebExchange {
 
 
 	/**
-	 * Constructor with a request and response only.
-	 * By default creates a session manager of type {@link DefaultWebSessionManager}.
-	 */
-	public DefaultServerWebExchange(ServerHttpRequest request, ServerHttpResponse response) {
-		this(request, response, new DefaultWebSessionManager());
-	}
-
-	/**
 	 * Alternate constructor with a WebSessionManager parameter.
 	 */
 	public DefaultServerWebExchange(ServerHttpRequest request, ServerHttpResponse response,
@@ -113,8 +104,10 @@ public class DefaultServerWebExchange implements ServerWebExchange {
 		try {
 			contentType = request.getHeaders().getContentType();
 			if (MediaType.APPLICATION_FORM_URLENCODED.isCompatibleWith(contentType)) {
-				Map<String, Object> hints = Collections.emptyMap();
-				return FORM_READER.readMono(FORM_DATA_VALUE_TYPE, request, hints).cache();
+				return FORM_READER
+						.readMono(FORM_DATA_VALUE_TYPE, request, Collections.emptyMap())
+						.otherwiseIfEmpty(EMPTY_FORM_DATA)
+						.cache();
 			}
 		}
 		catch (InvalidMediaTypeException ex) {

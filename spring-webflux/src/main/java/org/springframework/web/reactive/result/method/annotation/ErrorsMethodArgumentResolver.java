@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,6 +30,7 @@ import org.springframework.validation.Errors;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.reactive.BindingContext;
 import org.springframework.web.reactive.result.method.HandlerMethodArgumentResolver;
+import org.springframework.web.reactive.result.method.HandlerMethodArgumentResolverSupport;
 import org.springframework.web.server.ServerWebExchange;
 
 /**
@@ -40,39 +41,22 @@ import org.springframework.web.server.ServerWebExchange;
  * @author Rossen Stoyanchev
  * @since 5.0
  */
-public class ErrorsMethodArgumentResolver implements HandlerMethodArgumentResolver {
+public class ErrorsMethodArgumentResolver extends HandlerMethodArgumentResolverSupport {
 
-	private final ReactiveAdapterRegistry adapterRegistry;
-
-
-	/**
-	 * Class constructor.
-	 * @param registry for adapting to other reactive types from and to Mono
-	 */
 	public ErrorsMethodArgumentResolver(ReactiveAdapterRegistry registry) {
-		Assert.notNull(registry, "'ReactiveAdapterRegistry' is required.");
-		this.adapterRegistry = registry;
-	}
-
-
-	/**
-	 * Return the configured {@link ReactiveAdapterRegistry}.
-	 */
-	public ReactiveAdapterRegistry getAdapterRegistry() {
-		return this.adapterRegistry;
+		super(registry);
 	}
 
 
 	@Override
 	public boolean supportsParameter(MethodParameter parameter) {
-		Class<?> clazz = parameter.getParameterType();
-		return Errors.class.isAssignableFrom(clazz);
+		return checkParameterTypeNoReactiveWrapper(parameter, Errors.class::isAssignableFrom);
 	}
 
 
 	@Override
-	public Mono<Object> resolveArgument(MethodParameter parameter, BindingContext context,
-			ServerWebExchange exchange) {
+	public Mono<Object> resolveArgument(
+			MethodParameter parameter, BindingContext context, ServerWebExchange exchange) {
 
 		String name = getModelAttributeName(parameter);
 		Object errors = context.getModel().asMap().get(BindingResult.MODEL_KEY_PREFIX + name);
@@ -93,9 +77,8 @@ public class ErrorsMethodArgumentResolver implements HandlerMethodArgumentResolv
 	}
 
 	private String getModelAttributeName(MethodParameter parameter) {
-
 		Assert.isTrue(parameter.getParameterIndex() > 0,
-				"Errors argument must be immediately after a model attribute argument.");
+				"Errors argument must be immediately after a model attribute argument");
 
 		int index = parameter.getParameterIndex() - 1;
 		MethodParameter attributeParam = new MethodParameter(parameter.getMethod(), index);

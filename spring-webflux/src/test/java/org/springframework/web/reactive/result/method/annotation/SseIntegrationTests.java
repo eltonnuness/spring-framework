@@ -85,6 +85,7 @@ public class SseIntegrationTests extends AbstractHttpHandlerIntegrationTests {
 				.thenCancel()
 				.verify(Duration.ofSeconds(5L));
 	}
+
 	@Test
 	public void sseAsPerson() throws Exception {
 		Flux<Person> result = this.webClient.get()
@@ -191,11 +192,11 @@ public class SseIntegrationTests extends AbstractHttpHandlerIntegrationTests {
 		}
 	}
 
+	@SuppressWarnings("unused")
 	private static class Person {
 
 		private String name;
 
-		@SuppressWarnings("unused")
 		public Person() {
 		}
 
@@ -230,9 +231,7 @@ public class SseIntegrationTests extends AbstractHttpHandlerIntegrationTests {
 
 		@Override
 		public String toString() {
-			return "Person{" +
-					"name='" + name + '\'' +
-					'}';
+			return "Person{name='" + this.name + '\'' + '}';
 		}
 	}
 

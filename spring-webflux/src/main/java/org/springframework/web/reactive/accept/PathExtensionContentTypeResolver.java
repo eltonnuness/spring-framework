@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.springframework.web.reactive.accept;
 
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
@@ -33,16 +34,15 @@ import org.springframework.web.util.UriUtils;
  * the request path and uses that as the media type lookup key.
  *
  * <p>If the file extension is not found in the explicit registrations provided
- * to the constructor, the Java Activation Framework (JAF) is used as a fallback
- * mechanism. The presence of the JAF is detected and enabled automatically but
- * the {@link #setUseJaf(boolean)} property may be set to false.
+ * to the constructor, the {@link MediaTypeFactory} is used as a fallback
+ * mechanism.
  *
  * @author Rossen Stoyanchev
  * @since 5.0
  */
 public class PathExtensionContentTypeResolver extends AbstractMappingContentTypeResolver {
 
-	private boolean useJaf = true;
+	private boolean useRegisteredExtensionsOnly = false;
 
 	private boolean ignoreUnknownExtensions = true;
 
@@ -64,11 +64,12 @@ public class PathExtensionContentTypeResolver extends AbstractMappingContentType
 
 
 	/**
-	 * Whether to use the Java Activation Framework to look up file extensions.
-	 * <p>By default this is set to "true" but depends on JAF being present.
+	 * Whether to only use the registered mappings to look up file extensions, or also refer to
+	 * defaults.
+	 * <p>By default this is set to {@code false}, meaning that defaults are used.
 	 */
-	public void setUseJaf(boolean useJaf) {
-		this.useJaf = useJaf;
+	public void setUseRegisteredExtensionsOnly(boolean useRegisteredExtensionsOnly) {
+		this.useRegisteredExtensionsOnly = useRegisteredExtensionsOnly;
 	}
 
 	/**
@@ -90,22 +91,22 @@ public class PathExtensionContentTypeResolver extends AbstractMappingContentType
 
 	@Override
 	protected MediaType handleNoMatch(String key) throws NotAcceptableStatusException {
-		if (this.useJaf) {
-			MediaType mediaType = MediaTypeFactory.getMediaType("file." + key);
-			if (mediaType != null && !MediaType.APPLICATION_OCTET_STREAM.equals(mediaType)) {
-				return mediaType;
+		if (!this.useRegisteredExtensionsOnly) {
+			Optional<MediaType> mediaType = MediaTypeFactory.getMediaType("file." + key);
+			if (mediaType.isPresent()) {
+				return mediaType.get();
 			}
 		}
-		if (!this.ignoreUnknownExtensions) {
-			throw new NotAcceptableStatusException(getAllMediaTypes());
+		if (this.ignoreUnknownExtensions) {
+			return null;
 		}
-		return null;
+		throw new NotAcceptableStatusException(getAllMediaTypes());
 	}
 
 	/**
 	 * A public method exposing the knowledge of the path extension resolver to
 	 * determine the media type for a given {@link Resource}. First it checks
-	 * the explicitly registered mappings and then falls back on JAF.
+	 * the explicitly registered mappings and then falls back on {@link MediaTypeFactory}.
 	 * @param resource the resource
 	 * @return the MediaType for the extension, or {@code null} if none determined
 	 */
@@ -118,10 +119,7 @@ public class PathExtensionContentTypeResolver extends AbstractMappingContentType
 			mediaType = getMediaType(extension);
 		}
 		if (mediaType == null) {
-			mediaType = MediaTypeFactory.getMediaType(filename);
-		}
-		if (MediaType.APPLICATION_OCTET_STREAM.equals(mediaType)) {
-			mediaType = null;
+			mediaType = MediaTypeFactory.getMediaType(filename).orElse(null);
 		}
 		return mediaType;
 	}
